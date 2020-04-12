@@ -196,7 +196,7 @@ data "aws_ecs_task_definition" "this" {
 resource "aws_cloudwatch_log_group" "this" {
   count = local.services_count > 0 ? local.services_count : 0
 
-  name = "/ecs/${var.name}-${local.services[count.index].name}"
+  name = "/ecs/${var.environment}-${local.services[count.index].name}"
 
   retention_in_days = lookup(local.services[count.index], "logs_retention_days", var.cloudwatch_logs_default_retention_days)
 }
