@@ -6,6 +6,10 @@ variable "name" {
   description = "Name to be used on all the resources as identifier"
 }
 
+variable "environment" {
+  description = "Value to be used for the Environment"
+}
+
 variable "region" {
   description = "AWS region"
   default     = ""
