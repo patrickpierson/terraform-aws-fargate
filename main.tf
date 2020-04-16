@@ -319,6 +319,11 @@ resource "aws_lb" "this" {
   name            = "${var.name}-${var.environment}-${local.services[count.index].name}-alb"
   subnets         = slice(local.vpc_public_subnets_ids, 0, min(length(data.aws_availability_zones.this.names), length(local.vpc_public_subnets_ids)))
   security_groups = [aws_security_group.web.id]
+  depends_on      = [aws_s3_bucket_policy.this]
+  access_logs {
+    bucket  = aws_s3_bucket.this.id
+    enabled = true
+  }
 }
 
 resource "aws_lb_listener" "this" {
@@ -470,9 +475,55 @@ resource "aws_appautoscaling_policy" "this" {
 # CODEBUILD
 
 resource "aws_s3_bucket" "this" {
-  bucket        = "${var.name}-${var.environment}-builds"
+  bucket        = "${var.name}-${var.environment}"
   acl           = "private"
   force_destroy = true
+
+}
+
+resource "aws_s3_bucket_policy" "this" {
+  bucket = aws_s3_bucket.this.id
+
+  policy = <<POLICY
+{
+  "Version": "2012-10-17",
+  "Id": "AWSConsole-AccessLogs-Policy-1586912476128",
+  "Statement": [
+      {
+          "Sid": "AWSConsoleStmt-1586912476128",
+          "Effect": "Allow",
+          "Principal": {
+              "AWS": "arn:aws:iam::127311923021:root"
+          },
+          "Action": "s3:PutObject",
+          "Resource": "arn:aws:s3:::${aws_s3_bucket.this.id}/AWSLogs/*/*"
+      },
+      {
+          "Sid": "AWSLogDeliveryWrite",
+          "Effect": "Allow",
+          "Principal": {
+              "Service": "delivery.logs.amazonaws.com"
+          },
+          "Action": "s3:PutObject",
+          "Resource": "arn:aws:s3:::${aws_s3_bucket.this.id}/AWSLogs/*/*",
+          "Condition": {
+              "StringEquals": {
+                  "s3:x-amz-acl": "bucket-owner-full-control"
+              }
+          }
+      },
+      {
+          "Sid": "AWSLogDeliveryAclCheck",
+          "Effect": "Allow",
+          "Principal": {
+              "Service": "delivery.logs.amazonaws.com"
+          },
+          "Action": "s3:GetBucketAcl",
+          "Resource": "arn:aws:s3:::${aws_s3_bucket.this.id}"
+      }
+  ]
+}
+POLICY
 }
 
 resource "aws_iam_role" "codebuild" {
