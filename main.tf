@@ -459,13 +459,14 @@ resource "aws_appautoscaling_policy" "this" {
   service_namespace  = aws_appautoscaling_target.this[count.index].service_namespace
 
   target_tracking_scaling_policy_configuration {
-    target_value = lookup(local.services[count.index], "auto_scaling_max_cpu_util", 100)
+    target_value = lookup(local.services[count.index], "auto_scaling_requests_per_target", 10000)
 
-    scale_in_cooldown  = 300
+    scale_in_cooldown  = 30
     scale_out_cooldown = 300
 
     predefined_metric_specification {
-      predefined_metric_type = "ECSServiceAverageCPUUtilization"
+      predefined_metric_type = "ALBRequestCountPerTarget"
+      resource_label = "${replace("${aws_lb.this[count.index].id}", "arn:aws:elasticloadbalancing:us-east-1:${data.aws_caller_identity.current.account_id}:loadbalancer/", "")}/${replace("${aws_lb_target_group.this[count.index].id}", "arn:aws:elasticloadbalancing:us-east-1:${data.aws_caller_identity.current.account_id}:", "")}"
     }
   }
 
