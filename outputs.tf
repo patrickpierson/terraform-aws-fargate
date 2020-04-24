@@ -32,17 +32,17 @@ output "private_subnets_cidr_blocks" {
   value       = module.vpc.private_subnets_cidr_blocks
 }
 
-# # ECR
+# ECR
 
-# output "ecr_repository_arns" {
-#   description = "List of ARNs of ECR repositories"
-#   value       = aws_ecr_repository.this.*.arn
-# }
+output "ecr_repository_arns" {
+  description = "List of ARNs of ECR repositories"
+  value       = aws_ecr_repository.this.*.arn
+}
 
-# output "ecr_repository_urls" {
-#   description = "List of URLs of ECR repositories"
-#   value       = aws_ecr_repository.this.*.repository_url
-# }
+output "ecr_repository_urls" {
+  description = "List of URLs of ECR repositories"
+  value       = aws_ecr_repository.this.*.repository_url
+}
 
 # ECS CLUSTER
 
@@ -55,17 +55,17 @@ output "ecs_cluster_arn" {
 
 output "application_load_balancers_arns" {
   description = "List of ARNs of Application Load Balancers"
-  value       = aws_lb.this.arn
+  value       = aws_lb.this.*.arn
 }
 
 output "application_load_balancers_zone_ids" {
   description = "List of Zone IDs of Application Load Balancers"
-  value       = aws_lb.this.zone_id
+  value       = aws_lb.this.*.zone_id
 }
 
 output "application_load_balancers_dns_names" {
   description = "List of DNS Names of Application Load Balancers"
-  value       = aws_lb.this.dns_name
+  value       = aws_lb.this.*.dns_name
 }
 
 # SECURITY GROUPS
@@ -104,7 +104,7 @@ output "cloudwatch_log_group_retention_days" {
 
 # CODEPIPELINE SNS EVENTS
 
-# output "codepipeline_events_sns_arn" {
-#   description = "ARN of CodePipeline's SNS Topic"
-#   value       = var.codepipeline_events_enabled ? join(",", aws_sns_topic.codepipeline_events.*.arn) : "not set"
-# }
+output "codepipeline_events_sns_arn" {
+  description = "ARN of CodePipeline's SNS Topic"
+  value       = var.codepipeline_events_enabled ? join(",", aws_sns_topic.codepipeline_events.*.arn) : "not set"
+}

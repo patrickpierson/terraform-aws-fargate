@@ -82,31 +82,31 @@ module "vpc" {
   enable_s3_endpoint = true
 }
 
-# # ECR
+# ECR
 
-# resource "aws_ecr_repository" "this" {
-#   count = local.services_count > 0 ? local.services_count : 0
+resource "aws_ecr_repository" "this" {
+  count = local.services_count > 0 ? local.services_count : 0
 
-#   name = "${local.services[count.index].name}-${var.environment}"
-# }
+  name = "${local.services[count.index].name}-${var.environment}"
+}
 
-# data "template_file" "ecr-lifecycle" {
-#   count = local.services_count > 0 ? local.services_count : 0
+data "template_file" "ecr-lifecycle" {
+  count = local.services_count > 0 ? local.services_count : 0
 
-#   template = file("${path.module}/policies/ecr-lifecycle-policy.json")
+  template = file("${path.module}/policies/ecr-lifecycle-policy.json")
 
-#   vars = {
-#     count = lookup(local.services[count.index], "registry_retention_count", var.ecr_default_retention_count)
-#   }
-# }
+  vars = {
+    count = lookup(local.services[count.index], "registry_retention_count", var.ecr_default_retention_count)
+  }
+}
 
-# resource "aws_ecr_lifecycle_policy" "this" {
-#   count = local.services_count > 0 ? local.services_count : 0
+resource "aws_ecr_lifecycle_policy" "this" {
+  count = local.services_count > 0 ? local.services_count : 0
 
-#   repository = aws_ecr_repository.this[count.index].name
+  repository = aws_ecr_repository.this[count.index].name
 
-#   policy = data.template_file.ecr-lifecycle[count.index].rendered
-# }
+  policy = data.template_file.ecr-lifecycle[count.index].rendered
+}
 
 # ECS CLUSTER
 
@@ -165,7 +165,7 @@ data "template_file" "tasks" {
   vars = {
     container_name = local.services[count.index].name
     container_port = local.services[count.index].container_port
-    repository_url = ""
+    repository_url = aws_ecr_repository.this[count.index].repository_url
     log_group      = aws_cloudwatch_log_group.this[count.index].name
     region         = var.region != "" ? var.region : data.aws_region.current.name
   }
@@ -233,7 +233,7 @@ resource "aws_security_group" "services" {
   count = local.services_count > 0 ? local.services_count : 0
 
   vpc_id = local.vpc_id
-  #name   = "${var.name}-${local.services[count.index].name}-${var.environment}-services-sg"
+  name   = "${var.name}-${local.services[count.index].name}-${var.environment}-services-sg"
 
   ingress {
     from_port       = local.services[count.index].container_port
@@ -294,7 +294,7 @@ resource "random_id" "target_group_sufix" {
 resource "aws_lb_target_group" "this" {
   count = local.services_count > 0 ? local.services_count : 0
 
-  name        = "${var.name}-${var.environment}-${local.services[count.index].name}-${random_id.target_group_sufix[count.index].hex}"
+  name        = "${var.name}-${local.services[count.index].name}-${random_id.target_group_sufix[count.index].hex}"
   port        = random_id.target_group_sufix[count.index].keepers.container_port
   protocol    = "HTTP"
   vpc_id      = local.vpc_id
@@ -314,7 +314,9 @@ resource "aws_lb_target_group" "this" {
 }
 
 resource "aws_lb" "this" {
-  name            = "${var.name}-${var.environment}-alb"
+  count = local.services_count > 0 ? local.services_count : 0
+
+  name            = "${var.name}-${var.environment}-${local.services[count.index].name}-alb"
   subnets         = slice(local.vpc_public_subnets_ids, 0, min(length(data.aws_availability_zones.this.names), length(local.vpc_public_subnets_ids)))
   security_groups = [aws_security_group.web.id]
   depends_on      = [aws_s3_bucket_policy.this]
@@ -325,33 +327,18 @@ resource "aws_lb" "this" {
 }
 
 resource "aws_lb_listener" "this" {
-  load_balancer_arn = aws_lb.this.arn
-  port              = lookup(local.services[0], "acm_certificate_arn", "") != "" ? 443 : 80
-  protocol          = lookup(local.services[0], "acm_certificate_arn", "") != "" ? "HTTPS" : "HTTP"
-  ssl_policy        = lookup(local.services[0], "acm_certificate_arn", "") != "" ? "ELBSecurityPolicy-FS-2018-06" : null
-  certificate_arn   = lookup(local.services[0], "acm_certificate_arn", null)
+  count = local.services_count > 0 ? local.services_count : 0
+
+  load_balancer_arn = aws_lb.this[count.index].arn
+  port              = lookup(local.services[count.index], "acm_certificate_arn", "") != "" ? 443 : 80
+  protocol          = lookup(local.services[count.index], "acm_certificate_arn", "") != "" ? "HTTPS" : "HTTP"
+  ssl_policy        = lookup(local.services[count.index], "acm_certificate_arn", "") != "" ? "ELBSecurityPolicy-FS-2018-06" : null
+  certificate_arn   = lookup(local.services[count.index], "acm_certificate_arn", null)
   depends_on        = [aws_lb_target_group.this]
 
   default_action {
-    target_group_arn = aws_lb_target_group.this[0].arn
-    type             = "forward"
-  }
-}
-
-resource "aws_lb_listener_rule" "host_based_routing" {
-  count = local.services_count > 0 ? local.services_count : 0
-  listener_arn = aws_lb_listener.this.arn
-  priority     = "${100 - count.index}"
-
-  action {
-    type             = "forward"
     target_group_arn = aws_lb_target_group.this[count.index].arn
-  }
-
-  condition {
-    host_header {
-      values = [local.services[count.index].host]
-    }
+    type             = "forward"
   }
 }
 
@@ -479,14 +466,14 @@ resource "aws_appautoscaling_policy" "this" {
 
     predefined_metric_specification {
       predefined_metric_type = "ALBRequestCountPerTarget"
-      resource_label = "${replace("${aws_lb.this.id}", "arn:aws:elasticloadbalancing:us-east-1:${data.aws_caller_identity.current.account_id}:loadbalancer/", "")}/${replace("${aws_lb_target_group.this[count.index].id}", "arn:aws:elasticloadbalancing:us-east-1:${data.aws_caller_identity.current.account_id}:", "")}"
+      resource_label = "${replace("${aws_lb.this[count.index].id}", "arn:aws:elasticloadbalancing:us-east-1:${data.aws_caller_identity.current.account_id}:loadbalancer/", "")}/${replace("${aws_lb_target_group.this[count.index].id}", "arn:aws:elasticloadbalancing:us-east-1:${data.aws_caller_identity.current.account_id}:", "")}"
     }
   }
 
   depends_on = [aws_appautoscaling_target.this]
 }
 
-# Bucket
+# CODEBUILD
 
 resource "aws_s3_bucket" "this" {
   bucket        = "${var.name}-${var.environment}"
@@ -540,211 +527,211 @@ resource "aws_s3_bucket_policy" "this" {
 POLICY
 }
 
-# resource "aws_iam_role" "codebuild" {
-#   name               = "${var.name}-${var.environment}-codebuild-role"
-#   assume_role_policy = file("${path.module}/policies/codebuild-role.json")
-# }
+resource "aws_iam_role" "codebuild" {
+  name               = "${var.name}-${var.environment}-codebuild-role"
+  assume_role_policy = file("${path.module}/policies/codebuild-role.json")
+}
 
-# data "template_file" "codebuild" {
-#   template = file("${path.module}/policies/codebuild-role-policy.json")
+data "template_file" "codebuild" {
+  template = file("${path.module}/policies/codebuild-role-policy.json")
 
-#   vars = {
-#     aws_s3_bucket_arn = aws_s3_bucket.this.arn
-#   }
-# }
+  vars = {
+    aws_s3_bucket_arn = aws_s3_bucket.this.arn
+  }
+}
 
-# resource "aws_iam_role_policy" "codebuild" {
-#   name   = "${var.name}-${var.environment}-codebuild-role-policy"
-#   role   = aws_iam_role.codebuild.id
-#   policy = data.template_file.codebuild.rendered
-# }
+resource "aws_iam_role_policy" "codebuild" {
+  name   = "${var.name}-${var.environment}-codebuild-role-policy"
+  role   = aws_iam_role.codebuild.id
+  policy = data.template_file.codebuild.rendered
+}
 
-# data "template_file" "buildspec" {
-#   count = local.services_count > 0 ? local.services_count : 0
+data "template_file" "buildspec" {
+  count = local.services_count > 0 ? local.services_count : 0
 
-#   template = file("${path.module}/build/buildspec.yml")
+  template = file("${path.module}/build/buildspec.yml")
 
-#   vars = {
-#     container_name = local.services[count.index].name
-#   }
-# }
+  vars = {
+    container_name = local.services[count.index].name
+  }
+}
 
-# resource "aws_codebuild_project" "this" {
-#   count = local.services_count > 0 ? local.services_count : 0
+resource "aws_codebuild_project" "this" {
+  count = local.services_count > 0 ? local.services_count : 0
 
-#   name          = "${var.name}-${var.environment}-${local.services[count.index].name}-builds"
-#   build_timeout = "10"
-#   service_role  = aws_iam_role.codebuild.arn
+  name          = "${var.name}-${var.environment}-${local.services[count.index].name}-builds"
+  build_timeout = "10"
+  service_role  = aws_iam_role.codebuild.arn
 
-#   artifacts {
-#     type = "CODEPIPELINE"
-#   }
+  artifacts {
+    type = "CODEPIPELINE"
+  }
 
-#   environment {
-#     compute_type = "BUILD_GENERAL1_SMALL"
+  environment {
+    compute_type = "BUILD_GENERAL1_SMALL"
 
-#     // https://docs.aws.amazon.com/codebuild/latest/userguide/build-env-ref-available.html
-#     image           = "aws/codebuild/ubuntu-base:14.04"
-#     type            = "LINUX_CONTAINER"
-#     privileged_mode = true
-#   }
+    // https://docs.aws.amazon.com/codebuild/latest/userguide/build-env-ref-available.html
+    image           = "aws/codebuild/ubuntu-base:14.04"
+    type            = "LINUX_CONTAINER"
+    privileged_mode = true
+  }
 
-#   source {
-#     type      = "CODEPIPELINE"
-#     buildspec = element(data.template_file.buildspec[*].rendered, count.index)
-#   }
-# }
+  source {
+    type      = "CODEPIPELINE"
+    buildspec = element(data.template_file.buildspec[*].rendered, count.index)
+  }
+}
 
 # CODEPIPELINE
-# resource "aws_iam_role" "codepipeline" {
-#   count = local.services_count > 0 ? local.services_count : 0
+resource "aws_iam_role" "codepipeline" {
+  count = local.services_count > 0 ? local.services_count : 0
 
-#   name = "${var.name}-${var.environment}-${local.services[count.index].name}-codepipeline-role"
+  name = "${var.name}-${var.environment}-${local.services[count.index].name}-codepipeline-role"
 
-#   assume_role_policy = file("${path.module}/policies/codepipeline-role.json")
-# }
+  assume_role_policy = file("${path.module}/policies/codepipeline-role.json")
+}
 
-# data "template_file" "codepipeline" {
-#   count = local.services_count > 0 ? local.services_count : 0
+data "template_file" "codepipeline" {
+  count = local.services_count > 0 ? local.services_count : 0
 
-#   template = file("${path.module}/policies/codepipeline-role-policy.json")
+  template = file("${path.module}/policies/codepipeline-role-policy.json")
 
-#   vars = {
-#     aws_s3_bucket_arn  = aws_s3_bucket.this.arn
-#     ecr_repository_arn = aws_ecr_repository.this[count.index].arn
-#   }
-# }
+  vars = {
+    aws_s3_bucket_arn  = aws_s3_bucket.this.arn
+    ecr_repository_arn = aws_ecr_repository.this[count.index].arn
+  }
+}
 
-# resource "aws_iam_role_policy" "codepipeline" {
-#   count = local.services_count > 0 ? local.services_count : 0
+resource "aws_iam_role_policy" "codepipeline" {
+  count = local.services_count > 0 ? local.services_count : 0
 
-#   name   = "${var.name}-${var.environment}-${local.services[count.index].name}-codepipeline-role-policy"
-#   role   = aws_iam_role.codepipeline[count.index].id
-#   policy = data.template_file.codepipeline[count.index].rendered
-# }
+  name   = "${var.name}-${var.environment}-${local.services[count.index].name}-codepipeline-role-policy"
+  role   = aws_iam_role.codepipeline[count.index].id
+  policy = data.template_file.codepipeline[count.index].rendered
+}
 
-# resource "aws_codepipeline" "this" {
-#   count = local.services_count > 0 ? local.services_count : 0
+resource "aws_codepipeline" "this" {
+  count = local.services_count > 0 ? local.services_count : 0
 
-#   name     = "${var.name}-${var.environment}-${local.services[count.index].name}-pipeline"
-#   role_arn = aws_iam_role.codepipeline[count.index].arn
+  name     = "${var.name}-${var.environment}-${local.services[count.index].name}-pipeline"
+  role_arn = aws_iam_role.codepipeline[count.index].arn
 
-#   artifact_store {
-#     location = aws_s3_bucket.this.bucket
-#     type     = "S3"
-#   }
+  artifact_store {
+    location = aws_s3_bucket.this.bucket
+    type     = "S3"
+  }
 
-#   stage {
-#     name = "Source"
+  stage {
+    name = "Source"
 
-#     action {
-#       name             = "Source"
-#       category         = "Source"
-#       owner            = "AWS"
-#       provider         = "ECR"
-#       version          = "1"
-#       output_artifacts = ["source"]
+    action {
+      name             = "Source"
+      category         = "Source"
+      owner            = "AWS"
+      provider         = "ECR"
+      version          = "1"
+      output_artifacts = ["source"]
 
-#       configuration = {
-#         RepositoryName = aws_ecr_repository.this[count.index].name
-#         ImageTag       = "latest"
-#       }
-#     }
-#   }
+      configuration = {
+        RepositoryName = aws_ecr_repository.this[count.index].name
+        ImageTag       = "latest"
+      }
+    }
+  }
 
-#   stage {
-#     name = "Build"
+  stage {
+    name = "Build"
 
-#     action {
-#       name             = "Build"
-#       category         = "Build"
-#       owner            = "AWS"
-#       provider         = "CodeBuild"
-#       version          = "1"
-#       input_artifacts  = ["source"]
-#       output_artifacts = ["imagedefinitions"]
+    action {
+      name             = "Build"
+      category         = "Build"
+      owner            = "AWS"
+      provider         = "CodeBuild"
+      version          = "1"
+      input_artifacts  = ["source"]
+      output_artifacts = ["imagedefinitions"]
 
-#       configuration = {
-#         ProjectName = "${var.name}-${var.environment}-${local.services[count.index].name}-builds"
-#       }
-#     }
-#   }
+      configuration = {
+        ProjectName = "${var.name}-${var.environment}-${local.services[count.index].name}-builds"
+      }
+    }
+  }
 
-#   stage {
-#     name = "Deploy"
+  stage {
+    name = "Deploy"
 
-#     action {
-#       name            = "Deploy"
-#       category        = "Deploy"
-#       owner           = "AWS"
-#       provider        = "ECS"
-#       input_artifacts = ["imagedefinitions"]
-#       version         = "1"
+    action {
+      name            = "Deploy"
+      category        = "Deploy"
+      owner           = "AWS"
+      provider        = "ECS"
+      input_artifacts = ["imagedefinitions"]
+      version         = "1"
 
-#       configuration = {
-#         ClusterName = aws_ecs_cluster.this.name
-#         ServiceName = local.services[count.index].name
-#         FileName    = "imagedefinitions.json"
-#       }
-#     }
-#   }
+      configuration = {
+        ClusterName = aws_ecs_cluster.this.name
+        ServiceName = local.services[count.index].name
+        FileName    = "imagedefinitions.json"
+      }
+    }
+  }
 
-#   depends_on = [aws_iam_role_policy.codebuild, aws_ecs_service.this]
-# }
+  depends_on = [aws_iam_role_policy.codebuild, aws_ecs_service.this]
+}
 
 # CODEPIPELINE STATUS SNS
 
-# data "template_file" "codepipeline_events" {
-#   count = var.codepipeline_events_enabled ? 1 : 0
+data "template_file" "codepipeline_events" {
+  count = var.codepipeline_events_enabled ? 1 : 0
 
-#   template = file("${path.module}/cloudwatch/codepipeline-source-event.json")
+  template = file("${path.module}/cloudwatch/codepipeline-source-event.json")
 
-#   vars = {
-#     codepipeline_names = jsonencode(aws_codepipeline.this[*].name)
-#   }
-# }
+  vars = {
+    codepipeline_names = jsonencode(aws_codepipeline.this[*].name)
+  }
+}
 
-# data "template_file" "codepipeline_events_sns" {
-#   count = var.codepipeline_events_enabled ? 1 : 0
+data "template_file" "codepipeline_events_sns" {
+  count = var.codepipeline_events_enabled ? 1 : 0
 
-#   template = file("${path.module}/policies/sns-cloudwatch-events-policy.json")
+  template = file("${path.module}/policies/sns-cloudwatch-events-policy.json")
 
-#   vars = {
-#     sns_arn = aws_sns_topic.codepipeline_events[count.index].arn
-#   }
-# }
+  vars = {
+    sns_arn = aws_sns_topic.codepipeline_events[count.index].arn
+  }
+}
 
-# resource "aws_cloudwatch_event_rule" "codepipeline_events" {
-#   count = var.codepipeline_events_enabled ? 1 : 0
+resource "aws_cloudwatch_event_rule" "codepipeline_events" {
+  count = var.codepipeline_events_enabled ? 1 : 0
 
-#   name        = "${var.name}-${var.environment}-pipeline-events"
-#   description = "Amazon CloudWatch Events rule to automatically post SNS notifications when CodePipeline state changes."
+  name        = "${var.name}-${var.environment}-pipeline-events"
+  description = "Amazon CloudWatch Events rule to automatically post SNS notifications when CodePipeline state changes."
 
-#   event_pattern = data.template_file.codepipeline_events[count.index].rendered
-# }
+  event_pattern = data.template_file.codepipeline_events[count.index].rendered
+}
 
-# resource "aws_sns_topic" "codepipeline_events" {
-#   count = var.codepipeline_events_enabled ? 1 : 0
+resource "aws_sns_topic" "codepipeline_events" {
+  count = var.codepipeline_events_enabled ? 1 : 0
 
-#   name         = "${var.name}-${var.environment}-codepipeline-events"
-#   display_name = "${var.name}-${var.environment}-codepipeline-events"
-# }
+  name         = "${var.name}-${var.environment}-codepipeline-events"
+  display_name = "${var.name}-${var.environment}-codepipeline-events"
+}
 
-# resource "aws_sns_topic_policy" "codepipeline_events" {
-#   count = var.codepipeline_events_enabled ? 1 : 0
+resource "aws_sns_topic_policy" "codepipeline_events" {
+  count = var.codepipeline_events_enabled ? 1 : 0
 
-#   arn = aws_sns_topic.codepipeline_events[count.index].arn
+  arn = aws_sns_topic.codepipeline_events[count.index].arn
 
-#   policy = data.template_file.codepipeline_events_sns[count.index].rendered
-# }
+  policy = data.template_file.codepipeline_events_sns[count.index].rendered
+}
 
-# resource "aws_cloudwatch_event_target" "codepipeline_events" {
-#   count = var.codepipeline_events_enabled ? 1 : 0
+resource "aws_cloudwatch_event_target" "codepipeline_events" {
+  count = var.codepipeline_events_enabled ? 1 : 0
 
-#   rule      = aws_cloudwatch_event_rule.codepipeline_events[count.index].name
-#   target_id = "${var.name}-${var.environment}-codepipeline"
-#   arn       = aws_sns_topic.codepipeline_events[count.index].arn
-# }
+  rule      = aws_cloudwatch_event_rule.codepipeline_events[count.index].name
+  target_id = "${var.name}-${var.environment}-codepipeline"
+  arn       = aws_sns_topic.codepipeline_events[count.index].arn
+}
 
 ### CLOUDWATCH BASIC DASHBOARD
 
@@ -755,7 +742,7 @@ data "template_file" "metric_dashboard" {
 
   vars = {
     region         = var.region != "" ? var.region : data.aws_region.current.name
-    alb_arn_suffix = aws_lb.this.arn_suffix
+    alb_arn_suffix = aws_lb.this[count.index].arn_suffix
     cluster_name   = aws_ecs_cluster.this.name
     service_name   = local.services[count.index].name
   }
@@ -769,58 +756,58 @@ resource "aws_cloudwatch_dashboard" "this" {
   dashboard_body = data.template_file.metric_dashboard[count.index].rendered
 }
 
-# resource "aws_iam_role" "events" {
-#   count = local.services_count > 0 ? local.services_count : 0
+resource "aws_iam_role" "events" {
+  count = local.services_count > 0 ? local.services_count : 0
 
-#   name = "${var.name}-${var.environment}-${local.services[count.index].name}-events-role"
+  name = "${var.name}-${var.environment}-${local.services[count.index].name}-events-role"
 
-#   assume_role_policy = file("${path.module}/policies/events-role.json")
-# }
+  assume_role_policy = file("${path.module}/policies/events-role.json")
+}
 
-# data "template_file" "events" {
-#   count = local.services_count > 0 ? local.services_count : 0
+data "template_file" "events" {
+  count = local.services_count > 0 ? local.services_count : 0
 
-#   template = file("${path.module}/policies/events-role-policy.json")
+  template = file("${path.module}/policies/events-role-policy.json")
 
-#   vars = {
-#     codepipeline_arn = aws_codepipeline.this[count.index].arn
-#   }
-# }
+  vars = {
+    codepipeline_arn = aws_codepipeline.this[count.index].arn
+  }
+}
 
-# resource "aws_iam_role_policy" "events" {
-#   count = local.services_count > 0 ? local.services_count : 0
+resource "aws_iam_role_policy" "events" {
+  count = local.services_count > 0 ? local.services_count : 0
 
-#   name   = "${var.name}-${var.environment}-${local.services[count.index].name}-events-role-policy"
-#   role   = aws_iam_role.events[count.index].id
-#   policy = data.template_file.events[count.index].rendered
-# }
+  name   = "${var.name}-${var.environment}-${local.services[count.index].name}-events-role-policy"
+  role   = aws_iam_role.events[count.index].id
+  policy = data.template_file.events[count.index].rendered
+}
 
-# data "template_file" "ecr_event" {
-#   count = local.services_count > 0 ? local.services_count : 0
+data "template_file" "ecr_event" {
+  count = local.services_count > 0 ? local.services_count : 0
 
-#   template = file("${path.module}/cloudwatch/ecr-source-event.json")
+  template = file("${path.module}/cloudwatch/ecr-source-event.json")
 
-#   vars = {
-#     ecr_repository_name = aws_ecr_repository.this[count.index].name
-#   }
-# }
+  vars = {
+    ecr_repository_name = aws_ecr_repository.this[count.index].name
+  }
+}
 
-# resource "aws_cloudwatch_event_rule" "events" {
-#   count = local.services_count > 0 ? local.services_count : 0
+resource "aws_cloudwatch_event_rule" "events" {
+  count = local.services_count > 0 ? local.services_count : 0
 
-#   name        = "${var.name}-${var.environment}-${local.services[count.index].name}-ecr-event"
-#   description = "Amazon CloudWatch Events rule to automatically start your pipeline when a change occurs in the Amazon ECR image tag."
+  name        = "${var.name}-${var.environment}-${local.services[count.index].name}-ecr-event"
+  description = "Amazon CloudWatch Events rule to automatically start your pipeline when a change occurs in the Amazon ECR image tag."
 
-#   event_pattern = data.template_file.ecr_event[count.index].rendered
+  event_pattern = data.template_file.ecr_event[count.index].rendered
 
-#   depends_on = [aws_codepipeline.this]
-#}
+  depends_on = [aws_codepipeline.this]
+}
 
-# resource "aws_cloudwatch_event_target" "events" {
-#   count = local.services_count > 0 ? local.services_count : 0
+resource "aws_cloudwatch_event_target" "events" {
+  count = local.services_count > 0 ? local.services_count : 0
 
-#   rule      = aws_cloudwatch_event_rule.events[count.index].name
-#   target_id = "${var.name}-${var.environment}-${local.services[count.index].name}-codepipeline"
-#   arn       = aws_codepipeline.this[count.index].arn
-#   role_arn  = aws_iam_role.events[count.index].arn
-# }
+  rule      = aws_cloudwatch_event_rule.events[count.index].name
+  target_id = "${var.name}-${var.environment}-${local.services[count.index].name}-codepipeline"
+  arn       = aws_codepipeline.this[count.index].arn
+  role_arn  = aws_iam_role.events[count.index].arn
+}
