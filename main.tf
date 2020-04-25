@@ -166,6 +166,7 @@ data "template_file" "tasks" {
     container_name = local.services[count.index].name
     container_port = local.services[count.index].container_port
     repository_url = ""
+    account_id     = data.aws_caller_identity.current.account_id
     log_group      = aws_cloudwatch_log_group.this[count.index].name
     region         = var.region != "" ? var.region : data.aws_region.current.name
   }
