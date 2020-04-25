@@ -338,6 +338,23 @@ resource "aws_lb_listener" "this" {
   }
 }
 
+resource "aws_lb_listener" "this80" {
+  load_balancer_arn = aws_lb.this.arn
+  port              = 80
+  protocol          = "HTTP"
+  depends_on        = [aws_lb_listener.this]
+
+  default_action {
+    type = "redirect"
+
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}
+
 resource "aws_lb_listener_rule" "host_based_routing" {
   count = local.services_count > 0 ? local.services_count : 0
   listener_arn = aws_lb_listener.this.arn
