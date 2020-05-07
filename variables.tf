@@ -78,6 +78,9 @@ variable "ssm_allowed_parameters" {
   default     = ""
 }
 
+variable "default_action" {
+}
+
 ## ALB variables
 
 variable "alb_default_health_check_interval" {

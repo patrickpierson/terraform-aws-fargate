@@ -45,6 +45,8 @@ locals {
 
   vpc_public_subnets_ids = ! var.vpc_create ? var.vpc_external_public_subnets_ids : module.vpc.public_subnets
 
+  default_action = var.default_action
+
   services       = [for k, v in var.services : merge({ "name" : k }, v)]
   services_count = length(var.services)
 
@@ -334,11 +336,19 @@ resource "aws_lb_listener" "this" {
   depends_on        = [aws_lb_target_group.this]
 
   default_action {
-    target_group_arn = aws_lb_target_group.this[0].arn
-    type             = "forward"
+    type = "redirect"
+
+    redirect {
+        host        = local.default_action
+        path        = "/#{path}"
+        port        = "443"
+        protocol    = "HTTPS"
+        query       = "#{query}"
+        status_code = "HTTP_301"
+    }
   }
 }
-
+ 
 resource "aws_lb_listener" "this80" {
   load_balancer_arn = aws_lb.this.arn
   port              = 80
