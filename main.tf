@@ -112,6 +112,10 @@ module "vpc" {
 
 resource "aws_ecs_cluster" "this" {
   name = "${var.name}-${var.environment}-cluster"
+  capacity_providers = ["FARGATE_SPOT", "FARGATE"]
+  default_capacity_provider_strategy {
+    capacity_provider = "FARGATE"
+  }
 }
 
 # ECS TASKS DEFINITIONS
