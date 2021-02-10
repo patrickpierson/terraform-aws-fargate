@@ -269,18 +269,18 @@ resource "aws_security_group" "services_dynamic" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  dynamic "ingress" {
-    for_each = [for k, v in var.services : k
-      if k != local.services[count.index].name &&
-    contains(lookup(local.services[count.index], "allow_connections_from", []), k)]
-
-    content {
-      from_port = local.services[count.index].container_port
-      to_port   = local.services[count.index].container_port
-      protocol  = "tcp"
-      security_groups = [for s in aws_security_group.services : s.id
-      if lookup(s, "name", "") == "${var.name}-${ingress.value}-${var.environment}-services-sg"]
-    }
+  #dynamic "ingress" {
+  #  for_each = [for k, v in var.services : k
+  #    if k != local.services[count.index].name &&
+  #  contains(lookup(local.services[count.index], "allow_connections_from", []), k)]
+  #
+  #  content {
+  #    from_port = local.services[count.index].container_port
+  #    to_port   = local.services[count.index].container_port
+  #    protocol  = "tcp"
+  #    security_groups = [for s in aws_security_group.services : s.id
+  #    if lookup(s, "name", "") == "${var.name}-${ingress.value}-${var.environment}-services-sg"]
+  #  }
   }
 }
 
