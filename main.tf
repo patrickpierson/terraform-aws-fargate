@@ -60,7 +60,7 @@ data "aws_caller_identity" "current" {}
 
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
-  version = "2.9.0"
+  #version = "2.9.0"
 
   create_vpc = var.vpc_create
 
