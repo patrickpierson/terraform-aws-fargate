@@ -1,21 +1,3 @@
-# Main Module file
-
-terraform {
-  required_version = ">= 0.12"
-
-  required_providers {
-    aws        = "~> 3.0"
-  }
-}
-
-provider "random" {
-  version = "~> 2.1"
-}
-
-provider "template" {
-  version = "~> 2.1"
-}
-
 # VPC CONFIGURATION
 
 locals {
