@@ -79,7 +79,7 @@ module "vpc" {
   enable_dns_hostnames = true
 
   # Every instance will have a dedicated internal endpoint to communicate with S3
-  enable_s3_endpoint = true
+  #enable_s3_endpoint = true
 }
 
 # # ECR
